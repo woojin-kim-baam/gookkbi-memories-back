@@ -1,0 +1,123 @@
+package com.kwj.memories_back.config;
+
+import java.io.IOException;
+
+import org.springframework.beans.factory.annotation.Configurable;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.annotation.web.configurers.CsrfConfigurer;
+import org.springframework.security.config.annotation.web.configurers.HttpBasicConfigurer;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.core.AuthenticationException;
+import org.springframework.security.web.AuthenticationEntryPoint;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+
+import com.kwj.memories_back.filter.JwtAuthenticationFilter;
+import com.kwj.memories_back.handler.OAuth2SuccessHandler;
+import com.kwj.memories_back.service.implement.OAuth2UserServiceImplement;
+
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import lombok.RequiredArgsConstructor;
+
+// class: Spring Web 보안 설정 클래스 //
+// description : Bearer 인증 방식을 사용하기 위해 Basic 인증 미사용 //
+// description : Rest API 서버로 Session 유지하지 않음 //
+// description : CORS 정책은 모든 출처 및 리소스에 대해서 허용 //
+@Configurable // ?
+@Configuration // 애를 넣어줘야 Bean으로 등록해 쓸수 있게 해줌
+@EnableWebSecurity
+@RequiredArgsConstructor
+public class WebSecurityConfig {
+
+    private final JwtAuthenticationFilter jwtAuthenticationFilter; 
+    private final OAuth2UserServiceImplement oAuth2UserServiceImplement;
+    private final OAuth2SuccessHandler oAuth2SuccessHandler;
+
+    // function: Web Security 설정 메서드 //
+    @Bean
+    protected SecurityFilterChain configure(HttpSecurity security) throws Exception {
+
+        security
+        // description : Basic 인증 미사용 지정 //
+        .httpBasic(HttpBasicConfigurer::disable)
+        // description : Session 유지하지 않음 지정
+        .sessionManagement(management -> management
+            .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+            )
+            // description : csrf 취약점 대비 미사용 지정 //
+            .csrf(CsrfConfigurer::disable)
+            // description : CORS 정책 설정 //
+            .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+            // description : 인가 설정 //
+            .authorizeHttpRequests(request -> request
+            .requestMatchers("/api/v1/auth", "/api/v1/auth/**", "/oauth2/**").permitAll() // 이 요청을 통해 인증하지 않고 들어갈 수 있게 해줌
+
+
+            .requestMatchers("/file/**", "/api/v1/open-ai").permitAll()
+
+            
+            .requestMatchers("/api/v1/diary", " api/v1/diary/**").authenticated()
+                .anyRequest().authenticated() // 이 인증 방식을 통해 Error 403이 뜸
+            )
+            // description : Oauth 로그인 적용 //
+            .oauth2Login(oauth2 -> oauth2
+            .redirectionEndpoint(endpoint -> endpoint
+            .baseUri("/oauth2/callback/*"))
+            .authorizationEndpoint(endpoint -> endpoint
+            .baseUri("/api/v1/auth/sns"))
+            .userInfoEndpoint(endpoint -> endpoint
+            .userService(oAuth2UserServiceImplement))
+            .successHandler(oAuth2SuccessHandler)
+            )
+            // description : 인증 또는 인가 실패에 대한 처리 //
+            .exceptionHandling(exception -> exception
+                                                    .authenticationEntryPoint(new AuthenticationFailEntryPoint())) 
+
+            // description : JWT Authentication Filter 등록
+            .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class); // 이 앞에있는 필터를 위해 JwtAuthenticationFilter 의존성 주입함 
+
+        return security.build();
+    }
+
+    // function: CORS 정책 설정 객체를 반환하는 메서드 //
+    @Bean
+    protected CorsConfigurationSource corsConfigurationSource() {
+
+        CorsConfiguration configuration = new CorsConfiguration();
+        configuration.addAllowedHeader("*");
+        configuration.addAllowedMethod("*");
+        configuration.addAllowedOrigin("*");
+
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", configuration);
+
+
+        return source;
+    }
+    
+}
+
+class AuthenticationFailEntryPoint implements AuthenticationEntryPoint {
+
+    @Override
+    public void commence(HttpServletRequest request, HttpServletResponse response,
+            AuthenticationException authException) throws IOException, ServletException {
+        
+                authException.printStackTrace();
+
+                response.setContentType("application/json"); // json타입으로 반환하기 위해
+                response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                response.getWriter().write("{ \"code\" : \"AF\", \"message\" : \"Auth Fail.\" }");
+
+
+    }
+
+}
