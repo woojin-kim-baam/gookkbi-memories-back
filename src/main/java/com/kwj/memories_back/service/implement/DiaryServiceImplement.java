@@ -7,13 +7,20 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 
+import com.kwj.memories_back.common.dto.request.diary.PostCommentRequestDto;
 import com.kwj.memories_back.common.dto.request.diary.PostDiaryRequestDto;
 import com.kwj.memories_back.common.dto.response.ResponseDto;
+import com.kwj.memories_back.common.dto.response.diary.GetCommentResponseDto;
 import com.kwj.memories_back.common.dto.response.diary.GetDiaryResponseDto;
+import com.kwj.memories_back.common.dto.response.diary.GetEmpathyResponseDto;
 import com.kwj.memories_back.common.dto.response.diary.GetMyDiaryResponseDto;
 import com.kwj.memories_back.common.dto.response.diary.PatchDiaryRequestDto;
+import com.kwj.memories_back.common.entity.CommentEntity;
 import com.kwj.memories_back.common.entity.DiaryEntity;
+import com.kwj.memories_back.common.entity.EmpathyEntity;
+import com.kwj.memories_back.repository.CommentRepository;
 import com.kwj.memories_back.repository.DiaryRepository;
+import com.kwj.memories_back.repository.EmpathyRepository;
 import com.kwj.memories_back.service.DiaryService;
 
 import lombok.RequiredArgsConstructor;
@@ -23,6 +30,8 @@ import lombok.RequiredArgsConstructor;
 public class DiaryServiceImplement implements DiaryService {
 
     private final DiaryRepository diaryRepository;
+    private final EmpathyRepository empathyRepository;
+    private final CommentRepository commentRepository;
 
     @Override
     public ResponseEntity<ResponseDto> postDiary(PostDiaryRequestDto dto, String userId) {
@@ -46,7 +55,7 @@ public class DiaryServiceImplement implements DiaryService {
         
         try{
 
-            diaryEntities = diaryRepository.findByUserIdOrderByWriteDateDesc(userId);
+            diaryEntities = diaryRepository.findByOrderByDiaryNumberDesc();
 
         }catch(Exception e) {
             e.printStackTrace();
@@ -106,6 +115,9 @@ public class DiaryServiceImplement implements DiaryService {
             boolean isWriter = writerId.equals(userId);
             if(!isWriter) return ResponseDto.noPermission();
 
+
+            empathyRepository.deleteByDiaryNumber(diaryNumber);
+            commentRepository.deleteByDiaryNumber(diaryNumber);
             diaryRepository.delete(diaryEntity);
             
         }catch(Exception e){
@@ -114,5 +126,82 @@ public class DiaryServiceImplement implements DiaryService {
         }
         return ResponseDto.success(HttpStatus.OK);
     }
+
+    
+    @Override
+    public ResponseEntity<? super GetEmpathyResponseDto> getEmpathy(Integer diaryNumber) {
+        
+        List<EmpathyEntity> empathyEntities = new ArrayList<>();
+        
+        try{
+            
+            empathyEntities = empathyRepository.findByDiaryNumber(diaryNumber);
+            
+        }catch(Exception e){
+            e.printStackTrace();
+            return ResponseDto.databaseError();
+        }
+        return GetEmpathyResponseDto.success(empathyEntities);
+    }
+
+    @Override
+    public ResponseEntity<ResponseDto> putEmpathy(Integer diaryNumber, String userId) {
+
+        try{
+
+            boolean existDiary = diaryRepository.existsByDiaryNumber(diaryNumber);
+            if (!existDiary) return ResponseDto.noExistDiary();
+
+            EmpathyEntity empathyEntity = empathyRepository.findByUserIdAndDiaryNumber(userId, diaryNumber);
+            if(empathyEntity == null) {
+                empathyEntity = new EmpathyEntity(userId, diaryNumber);
+                empathyRepository.save(empathyEntity);
+            }else{
+                empathyRepository.delete(empathyEntity);
+            }
+
+
+        }catch(Exception e){
+            e.printStackTrace();
+            return ResponseDto.databaseError();
+        }
+        return ResponseDto.success(HttpStatus.OK);
+    }
+
+    @Override
+    public ResponseEntity<? super GetCommentResponseDto> getComment(Integer diaryNumber) {
+        List<CommentEntity> commentEntities = new ArrayList<>();
+        try {
+
+            commentEntities = commentRepository.findByDiaryNumberOrderByWriteDateDesc(diaryNumber);
+            
+        }catch(Exception e) {
+            e.printStackTrace();
+            return ResponseDto.databaseError();
+        }
+        return GetCommentResponseDto.success(commentEntities);
+    }
+    
+    
+
+    @Override
+    public ResponseEntity<ResponseDto> postComment(PostCommentRequestDto dto, Integer diaryNumber, String userId) {
+        try {
+
+            boolean existDiary = diaryRepository.existsByDiaryNumber(diaryNumber);
+            if (!existDiary) return ResponseDto.noExistDiary();
+    
+            CommentEntity commentEntity = new CommentEntity(dto, diaryNumber, userId);
+            commentRepository.save(commentEntity);
+    
+            } catch(Exception e) {
+            e.printStackTrace();
+            return ResponseDto.databaseError();
+            }
+    
+            return ResponseDto.success(HttpStatus.CREATED);
+    }
+
+    
     
 }
